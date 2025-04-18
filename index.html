@@ -1,18 +1,12 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="UTF-8">
   <title>PDF.js Cursor Coordinates Viewer</title>
   <style>
     body {
       font-family: Arial, sans-serif;
       margin: 20px;
-    }
-    canvas {
-      border: 1px solid #aaa;
-      cursor: crosshair;
-      display: block;
-      margin: 0 auto;
     }
     #controls {
       margin-bottom: 10px;
@@ -20,19 +14,34 @@
       align-items: center;
       gap: 10px;
     }
-    #coordinates {
-      margin-top: 10px;
-      font-size: 14px;
-    }
     #pageIndicator {
       margin-left: auto;
       margin-right: 10px;
+    }
+    #canvasContainer {
+      position: relative;
+      text-align: center;
+    }
+    canvas {
+      border: 2px dashed #aaa;
+      cursor: crosshair;
+      display: block;
+      margin: 0 auto;
+      max-width: 100%;
+    }
+    canvas.dragover {
+      border-color: #06c;
+      background-color: rgba(0, 102, 204, 0.05);
+    }
+    #coordinates {
+      margin-top: 10px;
+      font-size: 14px;
     }
   </style>
 </head>
 <body>
   <div id="controls">
-    <input type="file" id="fileInput" accept="application/pdf" />
+    <input type="file" id="fileInput" accept="application/pdf">
     <button id="prevPage">Prev</button>
     <button id="nextPage">Next</button>
     <select id="zoomSelect">
@@ -42,12 +51,16 @@
       <option value="2.0">200%</option>
       <option value="3.0">300%</option>
     </select>
-    <span id="pageIndicator">Page 0 / 0</span>
+    <span id="pageIndicator">Page 0 / 0</span>
   </div>
 
-  <canvas id="pdfCanvas"></canvas>
+  <div id="canvasContainer">
+    <!-- You can also drag & drop a PDF onto the canvas below -->
+    <canvas id="pdfCanvas"></canvas>
+  </div>
   <div id="coordinates">Coordinates: (hover on PDF)</div>
 
+  <!-- Loads our viewer code as an ES module -->
   <script type="module" src="viewer.mjs"></script>
 </body>
 </html>
