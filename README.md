@@ -12,6 +12,8 @@ This is how you can use the resulting coordinates:
 \end{tikzpicture}
 ```
 
+Note that this is based on the older pdfjs-3.11.174-legacy-dist.zip as I didn't have time to port it to mjs used in newer version of PDFjs.
+
 ## How to install and run
 
 * Unpack repo into a folder
