@@ -1,27 +1,31 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
   <title>PDF.js Cursor Coordinates Viewer</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 20px; }
+    body { font-family: Arial, margin: 20px; }
     #controls { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
     #controls button,#controls select,#controls label { cursor: pointer; }
     #pageIndicator { margin-left: auto; margin-right: 10px; }
-    #canvasContainer { text-align: center; }
-    /* Wrap both canvases so they share the same inline-block width */
+
+    #canvasContainer {
+      text-align: center;
+      padding: 10px;        /* ensure border visible at high zoom */
+      overflow: auto;       /* allow scrolling if too large */
+    }
     #canvasWrapper {
-      display: inline-block;
+      display: inline-block; /* sync centering of both canvases */
       position: relative;
     }
+
     #pdfCanvas {
       border: 2px dashed #aaa;
       cursor: crosshair;
       display: block;
     }
     #overlayCanvas {
-      position: absolute;
-      top: 0; left: 0;
+      position: absolute; top:0; left:0;
       pointer-events: none;
       mix-blend-mode: difference;
     }
@@ -29,6 +33,7 @@
       border-color: #06c;
       background-color: rgba(0,102,204,0.05);
     }
+
     #tooltip {
       position: absolute;
       display: none;
@@ -43,6 +48,7 @@
       white-space: nowrap;
     }
     #coordinates { margin-top:10px; font-size:14px; }
+
     #helpOverlay {
       position: fixed; top:0; left:0; width:100%; height:100%;
       background: rgba(0,0,0,0.7);
@@ -100,9 +106,9 @@
         <li><strong>Auto-copy</strong>: Click to copy coords if checked</li>
         <li><strong>Retain viewport</strong>: Keep page &amp; zoom on new load</li>
         <li><strong>Reload</strong>: <kbd>R</kbd></li>
-        <li><strong>Help</strong>: <kbd>H</kbd> or button</li>
+        <li><strong>Help</strong>: <kbd>H</kbd> or <kbd>Esc</kbd></li>
       </ul>
-      <p>Click anywhere to close</p>
+      <p>Click outside or press <kbd>Esc</kbd> to close</p>
     </div>
   </div>
 
