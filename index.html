@@ -33,6 +33,19 @@
       border-color: #06c;
       background-color: rgba(0, 102, 204, 0.05);
     }
+    #tooltip {
+      position: absolute;
+      display: none;
+      pointer-events: none;
+      background: rgba(0, 0, 0, 0.6);
+      color: #fff;
+      border: 1px dashed #fff;
+      border-radius: 4px;
+      padding: 2px 4px;
+      font-size: 12px;
+      white-space: nowrap;
+      z-index: 10;
+    }
     #coordinates {
       margin-top: 10px;
       font-size: 14px;
@@ -44,6 +57,7 @@
     <input type="file" id="fileInput" accept="application/pdf">
     <button id="prevPage">Prev</button>
     <button id="nextPage">Next</button>
+    <button id="refreshBtn">Refresh</button>
     <select id="zoomSelect">
       <option value="0.5">50%</option>
       <option value="1.0">100%</option>
@@ -51,16 +65,16 @@
       <option value="2.0">200%</option>
       <option value="3.0">300%</option>
     </select>
+    <label><input type="checkbox" id="autoCopy" checked> Auto-copy on click</label>
     <span id="pageIndicator">Page 0 / 0</span>
   </div>
 
   <div id="canvasContainer">
-    <!-- You can also drag & drop a PDF onto the canvas below -->
     <canvas id="pdfCanvas"></canvas>
+    <div id="tooltip"></div>
   </div>
   <div id="coordinates">Coordinates: (hover on PDF)</div>
 
-  <!-- Loads our viewer code as an ES module -->
   <script type="module" src="viewer.mjs"></script>
 </body>
 </html>
