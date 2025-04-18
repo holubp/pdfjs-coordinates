@@ -11,14 +11,14 @@
 
     #canvasContainer {
       text-align: center;
-      padding: 10px;        /* ensure border visible at high zoom */
-      overflow: auto;       /* allow scrolling if too large */
+      padding: 10px;        /* border visible at high zoom */
+      overflow: auto;       /* scroll if needed */
+      position: relative;   /* for tooltip if left outside wrapper */
     }
     #canvasWrapper {
-      display: inline-block; /* sync centering of both canvases */
-      position: relative;
+      display: inline-block;
+      position: relative;   /* for overlayCanvas & tooltip if moved inside */
     }
-
     #pdfCanvas {
       border: 2px dashed #aaa;
       cursor: crosshair;
@@ -80,7 +80,7 @@
     </select>
     <label><input type="checkbox" id="autoCopy" checked> Auto-copy</label>
     <label><input type="checkbox" id="retainViewport" checked> Retain viewport</label>
-    <button id="helpBtn" title="Help (H)">Help</button>
+    <button id="helpBtn" title="Help (H or Esc)">Help</button>
     <span id="pageIndicator">Page 0 / 0</span>
   </div>
 
@@ -88,8 +88,8 @@
     <div id="canvasWrapper">
       <canvas id="pdfCanvas"></canvas>
       <canvas id="overlayCanvas"></canvas>
+      <div id="tooltip"></div>
     </div>
-    <div id="tooltip"></div>
   </div>
   <div id="coordinates">Coordinates: (hover on PDF)</div>
 
