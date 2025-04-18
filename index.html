@@ -4,60 +4,66 @@
   <meta charset="UTF-8">
   <title>PDF.js Cursor Coordinates Viewer</title>
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      margin: 20px;
-    }
-    #controls {
-      margin-bottom: 10px;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-    #pageIndicator {
-      margin-left: auto;
-      margin-right: 10px;
-    }
-    #canvasContainer {
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    #controls { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+    #controls button,#controls select,#controls label { cursor: pointer; }
+    #pageIndicator { margin-left: auto; margin-right: 10px; }
+    #canvasContainer { text-align: center; }
+    /* Wrap both canvases so they share the same inline-block width */
+    #canvasWrapper {
+      display: inline-block;
       position: relative;
-      text-align: center;
     }
-    canvas {
+    #pdfCanvas {
       border: 2px dashed #aaa;
       cursor: crosshair;
       display: block;
-      margin: 0 auto;
+    }
+    #overlayCanvas {
+      position: absolute;
+      top: 0; left: 0;
+      pointer-events: none;
+      mix-blend-mode: difference;
     }
     canvas.dragover {
       border-color: #06c;
-      background-color: rgba(0, 102, 204, 0.05);
+      background-color: rgba(0,102,204,0.05);
     }
     #tooltip {
       position: absolute;
       display: none;
       pointer-events: none;
-      background: rgba(0, 0, 0, 0.6);
+      z-index: 10;
+      background: rgba(0,0,0,0.6);
       color: #fff;
       border: 1px dashed #fff;
       border-radius: 4px;
       padding: 2px 4px;
       font-size: 12px;
       white-space: nowrap;
-      z-index: 10;
     }
-    #coordinates {
-      margin-top: 10px;
-      font-size: 14px;
+    #coordinates { margin-top:10px; font-size:14px; }
+    #helpOverlay {
+      position: fixed; top:0; left:0; width:100%; height:100%;
+      background: rgba(0,0,0,0.7);
+      display: none; justify-content:center; align-items:center;
+      z-index:20; color:#fff;
     }
+    #helpOverlayContent {
+      background:#333; padding:20px; border-radius:8px;
+      max-width:400px; text-align:left;
+    }
+    #helpOverlayContent h2 { margin-top:0; }
+    #helpOverlayContent ul { padding-left:20px; }
+    #helpOverlayContent li { margin-bottom:6px; }
   </style>
 </head>
 <body>
   <div id="controls">
-    <input type="file" id="fileInput" accept="application/pdf">
-    <button id="prevPage">Prev</button>
-    <button id="nextPage">Next</button>
-    <button id="refreshBtn">Refresh</button>
-    <select id="zoomSelect">
+    <input type="file" id="fileInput" accept="application/pdf" title="Load PDF">
+    <button id="prevPage" title="Prev Page (P or Ctrl+‹)">Prev</button>
+    <button id="nextPage" title="Next Page (N or Ctrl+›)">Next</button>
+    <select id="zoomSelect" title="Zoom Level">
       <option value="0.5">50%</option>
       <option value="1.0">100%</option>
       <option value="1.5" selected>150%</option>
@@ -66,15 +72,39 @@
       <option value="6.0">600%</option>
       <option value="12.0">1200%</option>
     </select>
-    <label><input type="checkbox" id="autoCopy" checked> Auto-copy on click</label>
-    <span id="pageIndicator">Page 0 / 0</span>
+    <label><input type="checkbox" id="autoCopy" checked> Auto-copy</label>
+    <label><input type="checkbox" id="retainViewport" checked> Retain viewport</label>
+    <button id="helpBtn" title="Help (H)">Help</button>
+    <span id="pageIndicator">Page 0 / 0</span>
   </div>
 
   <div id="canvasContainer">
-    <canvas id="pdfCanvas"></canvas>
+    <div id="canvasWrapper">
+      <canvas id="pdfCanvas"></canvas>
+      <canvas id="overlayCanvas"></canvas>
+    </div>
     <div id="tooltip"></div>
   </div>
   <div id="coordinates">Coordinates: (hover on PDF)</div>
+
+  <div id="helpOverlay">
+    <div id="helpOverlayContent">
+      <h2>Viewer Controls &amp; Hotkeys</h2>
+      <ul>
+        <li><strong>Load PDF</strong>: Click or drag &amp; drop</li>
+        <li><strong>Prev Page</strong>: <kbd>P</kbd> or <kbd>Ctrl+‹</kbd></li>
+        <li><strong>Next Page</strong>: <kbd>N</kbd> or <kbd>Ctrl+›</kbd></li>
+        <li><strong>Move Crosshair</strong>: <kbd>Alt+‹/›/^/ˇ</kbd></li>
+        <li><strong>Scroll</strong>: Arrow / <kbd>PageUp</kbd> / <kbd>PageDown</kbd></li>
+        <li><strong>Zoom</strong>: <kbd>+</kbd> / <kbd>-</kbd> or dropdown</li>
+        <li><strong>Auto-copy</strong>: Click to copy coords if checked</li>
+        <li><strong>Retain viewport</strong>: Keep page &amp; zoom on new load</li>
+        <li><strong>Reload</strong>: <kbd>R</kbd></li>
+        <li><strong>Help</strong>: <kbd>H</kbd> or button</li>
+      </ul>
+      <p>Click anywhere to close</p>
+    </div>
+  </div>
 
   <script type="module" src="viewer.mjs"></script>
 </body>

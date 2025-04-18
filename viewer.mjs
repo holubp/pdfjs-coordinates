@@ -1,242 +1,257 @@
 /**
  * viewer.mjs
  *
- * A PDF.js-based viewer that:
- *  - Renders a PDF page on an HTML5 canvas
- *  - Tracks cursor X/Y in cm and shows a tooltip next to the crosshair
- *  - Copies "(X.XXcm,Y.XXcm)" on click if enabled
- *  - Supports prev/next page via buttons, arrow keys, or swipe
- *  - Supports zoom via dropdown or pinch
- *  - Supports drag & drop of a PDF onto the canvas
- *  - Supports Refreshing the current PDF file
+ * Implements option B: overlayCanvas uses DPR backing store and
+ * CSS-pixel drawing (via ctx.setTransform) so dashed lines span
+ * exactly from 0›width and 0›height, at any zoom or page size.
  */
 
 import * as pdfjsLib from './pdfjs/pdf.mjs';
 pdfjsLib.GlobalWorkerOptions.workerSrc = './pdfjs/pdf.worker.mjs';
 
-// ----- DOM references -----
-const fileInput     = document.getElementById('fileInput');
-const prevBtn       = document.getElementById('prevPage');
-const nextBtn       = document.getElementById('nextPage');
-const refreshBtn    = document.getElementById('refreshBtn');
-const zoomSelect    = document.getElementById('zoomSelect');
-const autoCopyChk   = document.getElementById('autoCopy');
-const pageIndicator = document.getElementById('pageIndicator');
-const canvas        = document.getElementById('pdfCanvas');
-const ctx           = canvas.getContext('2d');
-const coordsDiv     = document.getElementById('coordinates');
-const tooltip       = document.getElementById('tooltip');
+// DOM refs
+const fileInput       = document.getElementById('fileInput');
+const prevBtn         = document.getElementById('prevPage');
+const nextBtn         = document.getElementById('nextPage');
+const zoomSelect      = document.getElementById('zoomSelect');
+const autoCopyChk     = document.getElementById('autoCopy');
+const retainViewport  = document.getElementById('retainViewport');
+const helpBtn         = document.getElementById('helpBtn');
+const helpOverlay     = document.getElementById('helpOverlay');
+const pageIndicator   = document.getElementById('pageIndicator');
+const coordsDiv       = document.getElementById('coordinates');
+const tooltip         = document.getElementById('tooltip');
+const wrapper         = document.getElementById('canvasWrapper');
+const pdfCanvas       = document.getElementById('pdfCanvas');
+const pdfCtx          = pdfCanvas.getContext('2d');
+const overlayCanvas   = document.getElementById('overlayCanvas');
+const overlayCtx      = overlayCanvas.getContext('2d');
 
-// ----- State -----
-let pdfDoc    = null;
-let pdfData   = null;           // Uint8Array of current PDF
-let pageNum   = 1;
+// State
+let pdfDoc    = null, pdfData = null, pageNum = 1;
 let scale     = parseFloat(zoomSelect.value);
-const PDF_UNIT_TO_CM = 0.0352778;  // 1 PDF pt = 1/72in = 0.0352778 cm
+const DPR         = window.devicePixelRatio || 1;
+const PDF_UNIT_CM = 0.0352778;
+const TT_OFFSET   = 12;
+let lastCssX = 0, lastCssY = 0;
 
-/**
- * Renders the given page number at the current scale.
- * @param {number} num - The page number to render.
- */
+// Precompute discrete zoom steps
+const zoomSteps = Array.from(zoomSelect.options).map(o => parseFloat(o.value));
+
+/** Render page into both canvases */
 async function renderPage(num) {
-  const page     = await pdfDoc.getPage(num);
-  const viewport = page.getViewport({ scale });
+  const page = await pdfDoc.getPage(num);
+  const vp   = page.getViewport({ scale });
+  const cssW = vp.width, cssH = vp.height;
 
-  // Resize canvas
-  canvas.width  = viewport.width;
-  canvas.height = viewport.height;
+  // PDF canvas DPR backing store
+  pdfCanvas.width  = Math.round(cssW * DPR);
+  pdfCanvas.height = Math.round(cssH * DPR);
+  pdfCanvas.style.width  = `${cssW}px`;
+  pdfCanvas.style.height = `${cssH}px`;
 
-  // Draw page
-  await page.render({ canvasContext: ctx, viewport }).promise;
+  // Overlay canvas same DPR backing store
+  overlayCanvas.width  = pdfCanvas.width;
+  overlayCanvas.height = pdfCanvas.height;
+  overlayCanvas.style.width  = `${cssW}px`;
+  overlayCanvas.style.height = `${cssH}px`;
 
-  // Update page indicator
-  pageIndicator.textContent = `Page ${pageNum} / ${pdfDoc.numPages}`;
+  // Also set wrapper size so absolute overlays align
+  wrapper.style.width  = `${cssW}px`;
+  wrapper.style.height = `${cssH}px`;
+
+  // Render PDF
+  pdfCtx.setTransform(DPR,0,0,DPR,0,0);
+  await page.render({ canvasContext: pdfCtx, viewport: vp }).promise;
+  pdfCtx.setTransform(1,0,0,1,0,0);
+
+  pageIndicator.textContent = `Page ${pageNum} / ${pdfDoc.numPages}`;
 }
 
-/**
- * Updates zoom and re-renders.
- * @param {number} newScale
- */
-function changeZoom(newScale) {
-  scale = newScale;
-  renderPage(pageNum);
-}
+/** Draw dashed crosshairs and update coords */
+function updateOverlays(cssX, cssY) {
+  const rect = pdfCanvas.getBoundingClientRect();
+  const x    = Math.max(0, Math.min(cssX, rect.width));
+  const y    = Math.max(0, Math.min(cssY, rect.height));
+  lastCssX = x; lastCssY = y;
 
-/**
- * Loads (or reloads) a PDF from ArrayBuffer data and renders.
- * If initial load, resets to page 1; if reload, preserves pageNum.
- * @param {Uint8Array} data
- * @param {boolean} preservePage - true to keep current pageNum, false to reset to 1
- */
-function loadPDF(data, preservePage = false) {
-  pdfjsLib.getDocument(data).promise.then(doc => {
-    pdfDoc = doc;
-    if (!preservePage) pageNum = 1;
-    renderPage(pageNum);
-  });
-}
+  // Compute cm coords
+  const ptX = x / scale, ptY = y / scale;
+  const coordText = `(${(ptX*PDF_UNIT_CM).toFixed(2)}cm,${(ptY*PDF_UNIT_CM).toFixed(2)}cm)`;
 
-// ----- Event Listeners -----
-
-// File input › initial load
-fileInput.addEventListener('change', e => {
-  const file = e.target.files[0];
-  if (!file || file.type !== 'application/pdf') return;
-  const reader = new FileReader();
-  reader.onload = () => {
-    pdfData = new Uint8Array(reader.result);
-    loadPDF(pdfData, false);
-  };
-  reader.readAsArrayBuffer(file);
-});
-
-// Prev/Next buttons
-prevBtn.addEventListener('click', () => {
-  if (pageNum > 1) {
-    pageNum--;
-    renderPage(pageNum);
-  }
-});
-nextBtn.addEventListener('click', () => {
-  if (pdfDoc && pageNum < pdfDoc.numPages) {
-    pageNum++;
-    renderPage(pageNum);
-  }
-});
-
-// Refresh button › reload same file & preserve pageNum
-refreshBtn.addEventListener('click', () => {
-  if (pdfData) {
-    loadPDF(pdfData, true);
-  }
-});
-
-// Zoom dropdown
-zoomSelect.addEventListener('change', () => {
-  changeZoom(parseFloat(zoomSelect.value));
-});
-
-// Keyboard ‹ / ›
-document.addEventListener('keydown', e => {
-  if (!pdfDoc) return;
-  if (e.key === 'ArrowRight' && pageNum < pdfDoc.numPages) {
-    pageNum++; renderPage(pageNum);
-  } else if (e.key === 'ArrowLeft' && pageNum > 1) {
-    pageNum--; renderPage(pageNum);
-  }
-});
-
-// Mouse move › show coords & tooltip
-canvas.addEventListener('mousemove', e => {
-  const rect   = canvas.getBoundingClientRect();
-  const mouseX = e.clientX - rect.left;
-  const mouseY = e.clientY - rect.top;
-  const x_cm   = (mouseX / scale) * PDF_UNIT_TO_CM;
-  const y_cm   = (mouseY / scale) * PDF_UNIT_TO_CM;
-  const coordText = `(${x_cm.toFixed(2)}cm,${y_cm.toFixed(2)}cm)`;
-
-  // Update bottom coords
   coordsDiv.textContent = `Coordinates: ${coordText}`;
-
-  // Show tooltip
   tooltip.textContent   = coordText;
   tooltip.style.display = 'block';
+  tooltip.style.left    = `${x + TT_OFFSET}px`;
+  tooltip.style.top     = `${y + TT_OFFSET}px`;
 
-  // Tooltip sizing & positioning (stays in canvas)
-  const ttW    = tooltip.offsetWidth;
-  const ttH    = tooltip.offsetHeight;
-  const margin = 5;
-  const offset = 12;
+  // Clear device-pixel overlay
+  overlayCtx.setTransform(1,0,0,1,0,0);
+  overlayCtx.clearRect(0,0,overlayCanvas.width,overlayCanvas.height);
 
-  let left = mouseX + offset;
-  if (left + ttW + margin > canvas.width) {
-    left = mouseX - ttW - offset;
-    if (left < margin) left = margin;
-  }
+  // Draw in CSS px space
+  overlayCtx.setTransform(DPR,0,0,DPR,0,0);
+  overlayCtx.setLineDash([1,2]);
+  overlayCtx.lineWidth   = 1;
+  overlayCtx.strokeStyle = 'rgba(255,255,255,0.6)';
 
-  let top = mouseY + offset;
-  if (top + ttH + margin > canvas.height) {
-    top = mouseY - ttH - offset;
-    if (top < margin) top = margin;
-  }
+  // Vertical: 0›cssH
+  overlayCtx.beginPath();
+  overlayCtx.moveTo(x + 0.5, 0);
+  overlayCtx.lineTo(x + 0.5, overlayCanvas.height / DPR);
+  overlayCtx.stroke();
 
-  tooltip.style.left = `${left}px`;
-  tooltip.style.top  = `${top}px`;
-});
+  // Horizontal: 0›cssW
+  overlayCtx.beginPath();
+  overlayCtx.moveTo(0, y + 0.5);
+  overlayCtx.lineTo(overlayCanvas.width / DPR, y + 0.5);
+  overlayCtx.stroke();
 
-// Hide tooltip on leave
-canvas.addEventListener('mouseleave', () => {
+  overlayCtx.setTransform(1,0,0,1,0,0);
+}
+
+/** Hide overlays */
+function clearOverlays() {
   tooltip.style.display = 'none';
-});
+  overlayCtx.setTransform(1,0,0,1,0,0);
+  overlayCtx.clearRect(0,0,overlayCanvas.width,overlayCanvas.height);
+}
 
-// Click › copy coords if checkbox is checked
-canvas.addEventListener('click', () => {
-  if (!autoCopyChk.checked) return;
-  const txt = tooltip.textContent;
-  if (!txt) return;
-  navigator.clipboard.writeText(txt).then(() => {
-    alert(`Copied to clipboard:\n${txt}`);
+/** Load (or reload) PDF */
+function loadPDF(data) {
+  const keep = retainViewport.checked;
+  pdfjsLib.getDocument(data).promise.then(doc => {
+    pdfDoc = doc;
+    if (!keep) {
+      pageNum = 1;
+      scale   = parseFloat(zoomSelect.value);
+    }
+    pageNum = Math.min(Math.max(1, pageNum), pdfDoc.numPages);
+    zoomSelect.value = scale.toString();
+    renderPage(pageNum);
   });
-});
+}
 
-// Touch: swipe for page nav & pinch for zoom
-let startX = null, startDist = null;
-canvas.addEventListener('touchstart', e => {
-  if (e.touches.length === 1) {
-    startX = e.touches[0].clientX;
-  } else if (e.touches.length === 2) {
-    const dx = e.touches[0].clientX - e.touches[1].clientX;
-    const dy = e.touches[0].clientY - e.touches[1].clientY;
-    startDist = Math.hypot(dx, dy);
+// — Events —
+
+fileInput.addEventListener('change', e => {
+  const f = e.target.files[0];
+  if (!f||f.type!=='application/pdf') return;
+  const r = new FileReader();
+  r.onload = () => { pdfData = new Uint8Array(r.result); loadPDF(pdfData); };
+  r.readAsArrayBuffer(f);
+});
+prevBtn.addEventListener('click',()=>{ if(pageNum>1)pageNum--,renderPage(pageNum); });
+nextBtn.addEventListener('click',()=>{ if(pageNum<pdfDoc.numPages)pageNum++,renderPage(pageNum); });
+zoomSelect.addEventListener('change',()=>{ scale=parseFloat(zoomSelect.value); renderPage(pageNum); });
+
+pdfCanvas.addEventListener('mousemove', e=> {
+  const r = pdfCanvas.getBoundingClientRect();
+  updateOverlays(e.clientX - r.left, e.clientY - r.top);
+});
+pdfCanvas.addEventListener('mouseleave', clearOverlays);
+pdfCanvas.addEventListener('click', ()=> { if(!autoCopyChk.checked) return; const t=tooltip.textContent; t&&navigator.clipboard.writeText(t); });
+
+pdfCanvas.addEventListener('dragover',e=>e.preventDefault());
+pdfCanvas.addEventListener('drop',e=>{ e.preventDefault(); const f=e.dataTransfer.files[0]; if(f&&f.type==='application/pdf'){ const r=new FileReader(); r.onload=()=>{ pdfData=new Uint8Array(r.result); loadPDF(pdfData); }; r.readAsArrayBuffer(f); } });
+
+helpBtn.addEventListener('click',()=>helpOverlay.style.display='flex');
+helpOverlay.addEventListener('click',()=>helpOverlay.style.display='none');
+
+document.addEventListener('keydown', e=> {
+  if(!pdfDoc) return;
+
+  // Scroll: Arrow/Page (no Alt)
+  if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','PageUp','PageDown'].includes(e.key) && !e.altKey) {
+    if(e.ctrlKey && (e.key==='ArrowUp'||e.key==='ArrowDown')) {
+      window.scrollBy(0, e.key==='ArrowUp'?-40:40);
+      e.preventDefault();
+    }
+    return;
+  }
+
+  // Alt+Arrow => crosshair nudge
+  if(e.altKey && !e.ctrlKey && !e.shiftKey && ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)) {
+    const step=1;
+    switch(e.key){
+      case 'ArrowUp':    lastCssY=Math.max(0,lastCssY-step); break;
+      case 'ArrowDown':  lastCssY=Math.min(overlayCanvas.height/DPR,lastCssY+step); break;
+      case 'ArrowLeft':  lastCssX=Math.max(0,lastCssX-step); break;
+      case 'ArrowRight': lastCssX=Math.min(overlayCanvas.width/DPR,lastCssX+step); break;
+    }
+    e.preventDefault();
+    updateOverlays(lastCssX,lastCssY);
+    return;
+  }
+
+  // Prev page: P or Ctrl+‹
+  if((!e.altKey&&!e.shiftKey&&(e.key==='p'||e.key==='P'))||(e.ctrlKey&&e.key==='ArrowLeft')){
+    e.preventDefault(); if(pageNum>1)pageNum--,renderPage(pageNum); return;
+  }
+  // Next page: N or Ctrl+›
+  if((!e.altKey&&!e.shiftKey&&(e.key==='n'||e.key==='N'))||(e.ctrlKey&&e.key==='ArrowRight')){
+    e.preventDefault(); if(pageNum<pdfDoc.numPages)pageNum++,renderPage(pageNum); return;
+  }
+
+  // Zoom in: + or =
+  if(e.key==='+'||e.key==='='){
+    e.preventDefault();
+    const idx=zoomSteps.indexOf(scale);
+    if(idx>=0&&idx<zoomSteps.length-1){
+      scale=zoomSteps[idx+1];
+      zoomSelect.value=scale.toString();
+      renderPage(pageNum);
+    }
+    return;
+  }
+  // Zoom out: -
+  if(e.key==='-'){
+    e.preventDefault();
+    const idx=zoomSteps.indexOf(scale);
+    if(idx>0){
+      scale=zoomSteps[idx-1];
+      zoomSelect.value=scale.toString();
+      renderPage(pageNum);
+    }
+    return;
+  }
+
+  // Reload: R
+  if(!e.altKey&&!e.ctrlKey&&!e.shiftKey&&(e.key==='r'||e.key==='R')){
+    e.preventDefault(); pdfData&&loadPDF(pdfData); return;
+  }
+  // Help: H
+  if(!e.altKey&&!e.ctrlKey&&!e.shiftKey&&(e.key==='h'||e.key==='H')){
+    e.preventDefault(); helpOverlay.style.display='flex'; return;
   }
 });
-canvas.addEventListener('touchmove', e => {
-  if (e.touches.length === 2 && startDist) {
-    const dx = e.touches[0].clientX - e.touches[1].clientX;
-    const dy = e.touches[0].clientY - e.touches[1].clientY;
-    const newDist = Math.hypot(dx, dy);
-    const ratio = newDist / startDist;
-    if (ratio > 1.1) {
-      changeZoom(scale * 1.1);
-      startDist = newDist;
-    } else if (ratio < 0.9) {
-      changeZoom(scale / 1.1);
-      startDist = newDist;
-    }
+
+// Touch: pinch & swipe
+let touchStartX=null, touchStartDist=null;
+pdfCanvas.addEventListener('touchstart', e=>{
+  if(e.touches.length===1) touchStartX=e.touches[0].clientX;
+  else if(e.touches.length===2){
+    const dx=e.touches[0].clientX-e.touches[1].clientX;
+    const dy=e.touches[0].clientY-e.touches[1].clientY;
+    touchStartDist=Math.hypot(dx,dy);
+  }
+});
+pdfCanvas.addEventListener('touchmove', e=>{
+  if(e.touches.length===2&&touchStartDist){
+    const dx=e.touches[0].clientX-e.touches[1].clientX;
+    const dy=e.touches[0].clientY-e.touches[1].clientY;
+    const dist=Math.hypot(dx,dy), ratio=dist/touchStartDist;
+    if(ratio>1.1){ scale*=1.1; zoomSelect.value=scale.toString(); renderPage(pageNum); touchStartDist=dist; }
+    else if(ratio<0.9){ scale/=1.1; zoomSelect.value=scale.toString(); renderPage(pageNum); touchStartDist=dist; }
     e.preventDefault();
   }
 });
-canvas.addEventListener('touchend', e => {
-  if (startX !== null && e.changedTouches.length === 1) {
-    const deltaX = e.changedTouches[0].clientX - startX;
-    if (deltaX > 50 && pageNum > 1) {
-      pageNum--; renderPage(pageNum);
-    } else if (deltaX < -50 && pageNum < pdfDoc.numPages) {
-      pageNum++; renderPage(pageNum);
-    }
+pdfCanvas.addEventListener('touchend', e=>{
+  if(touchStartX!==null&&e.changedTouches.length===1){
+    const dx=e.changedTouches[0].clientX-touchStartX;
+    if(dx>50&&pageNum>1){pageNum--;renderPage(pageNum);}
+    else if(dx<-50&&pageNum<pdfDoc.numPages){pageNum++;renderPage(pageNum);}
   }
-  startX = null; startDist = null;
-});
-
-// Drag & drop PDF onto canvas
-canvas.addEventListener('dragover', e => {
-  e.preventDefault();
-  canvas.classList.add('dragover');
-});
-canvas.addEventListener('dragleave', () => {
-  canvas.classList.remove('dragover');
-});
-canvas.addEventListener('drop', e => {
-  e.preventDefault();
-  canvas.classList.remove('dragover');
-  const file = e.dataTransfer.files[0];
-  if (file && file.type === 'application/pdf') {
-    const reader = new FileReader();
-    reader.onload = () => {
-      pdfData = new Uint8Array(reader.result);
-      loadPDF(pdfData, false);
-    };
-    reader.readAsArrayBuffer(file);
-  }
+  touchStartX=touchStartDist=null;
 });
 
